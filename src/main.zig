@@ -65,7 +65,11 @@ pub fn main() !void {
 }
 
 fn printGrid(g: []const u1) void {
-    for (g) |value, i| {
+    var stdout_hndl = std.io.getStdOut();
+    stdout_hndl.writeAll(&.{ 0o33, '[', '2', 'J' }) catch unreachable;
+
+    print("----------\n", .{});
+    for (g, 0..) |value, i| {
         if (i > 0 and i % GRID_SIZE == 0) {
             print("\n", .{});
         }

@@ -1,3 +1,12 @@
+// TODO:
+// Specify starting states
+// Variable grid size
+// Color!
+
+// Interactive editor:
+// pausable sim, cursor to edit the grid
+// can save grid to disk when paused
+
 const std = @import("std");
 const print = std.debug.print;
 

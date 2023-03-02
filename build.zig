@@ -14,11 +14,21 @@ pub fn build(b: *std.Build) void {
     });
 
     exe.addIncludePath("deps/SDL2/include");
-    exe.addLibraryPath("deps/SDL2/lib");
-    exe.linkSystemLibrary("SDL2");
 
-    const install_SDL = b.addInstallBinFile(.{ .path = "deps/SDL2/lib/SDL2.dll" }, "SDL2.dll");
-    exe.step.dependOn(&install_SDL.step);
+    const t = exe.target_info.target;
+    switch (t.os.tag) {
+        .windows => {
+            const install_SDL = b.addInstallBinFile(.{ .path = "deps/SDL2/lib/SDL2.dll" }, "SDL2.dll");
+            exe.step.dependOn(&install_SDL.step);
+            exe.addLibraryPath("deps/SDL2/lib");
+            exe.linkSystemLibrary("SDL2");
+        },
+        .macos => {
+            exe.addFrameworkPath("/Library/Frameworks");
+            exe.linkFramework("SDL2");
+        },
+        else => @panic("only Windows and macOS supported for now"),
+    }
 
     exe.linkLibC();
     exe.install();

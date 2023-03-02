@@ -1,15 +1,12 @@
 // TODO:
 // Specify starting states
 // Variable grid size
-// Color!
-
-// Interactive editor:
-// pausable sim, cursor to edit the grid
-// can save grid to disk when paused
+// Zooming!
 
 // Saving grid to disk: just dump the bytes!
 // interpret first two u16/u32's as width/height, raw grid data from there
-// Zooming!
+
+// possibly change window aspect ratio based on the grid aspect ratio
 
 const std = @import("std");
 const print = std.debug.print;

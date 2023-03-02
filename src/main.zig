@@ -7,6 +7,10 @@
 // pausable sim, cursor to edit the grid
 // can save grid to disk when paused
 
+// Saving grid to disk: just dump the bytes!
+// interpret first two u16/u32's as width/height, raw grid data from there
+// Zooming!
+
 const std = @import("std");
 const print = std.debug.print;
 

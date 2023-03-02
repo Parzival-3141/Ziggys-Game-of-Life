@@ -18,6 +18,13 @@ const c = @cImport({
     @cInclude("SDL2/SDL.h");
 });
 
+const Color = struct {
+    r: u8,
+    g: u8,
+    b: u8,
+    a: u8 = 255,
+};
+
 const GRID_SIZE = 10;
 
 var grid = [GRID_SIZE * GRID_SIZE]u1{
@@ -35,7 +42,7 @@ var grid = [GRID_SIZE * GRID_SIZE]u1{
 
 var back_buffer = [1]u1{0} ** (GRID_SIZE * GRID_SIZE);
 
-const window_width = 800;
+const window_width = 700;
 const window_height = window_width;
 const cell_width = window_width / GRID_SIZE;
 const cell_height = window_height / GRID_SIZE;
@@ -84,7 +91,7 @@ pub fn main() !void {
             }
         }
 
-        // printGrid(&grid);
+        var bgnd_col = Color{ .r = 0, .g = 0, .b = 0 };
 
         if (!paused) {
             const now = c.SDL_GetTicks();
@@ -95,12 +102,22 @@ pub fn main() !void {
                 updateGrid();
             }
             previous_tick = now;
+        } else {
+            // _ = c.SDL_SetRenderDrawColor(renderer, 255, 127, 0, 255);
+            // _ = c.SDL_RenderDrawRect(renderer, &[_]c.SDL_Rect{.{
+            //     .x = 0,
+            //     .y = 0,
+            //     .w = window_width,
+            //     .h = wind,
+            // }});
+            bgnd_col = .{ .r = 63, .g = 31, .b = 0 };
         }
+
+        _ = c.SDL_SetRenderDrawColor(renderer, bgnd_col.r, bgnd_col.g, bgnd_col.b, bgnd_col.a);
+        _ = c.SDL_RenderClear(renderer);
 
         // Draw automata state
         {
-            _ = c.SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
-            _ = c.SDL_RenderClear(renderer);
             _ = c.SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255);
             var row: u32 = 0;
             while (row < GRID_SIZE) : (row += 1) {
@@ -129,6 +146,11 @@ pub fn main() !void {
             const norm_y = @intToFloat(f32, y) / @intToFloat(f32, window_height);
             const col = @floatToInt(u32, @floor(norm_x * GRID_SIZE));
             const row = @floatToInt(u32, @floor(norm_y * GRID_SIZE));
+
+            if (clicked) {
+                grid[row * GRID_SIZE + col] = ~grid[row * GRID_SIZE + col];
+            }
+
             _ = c.SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255);
             _ = c.SDL_RenderDrawRect(renderer, &[_]c.SDL_Rect{.{
                 .x = @intCast(c_int, col * cell_width),

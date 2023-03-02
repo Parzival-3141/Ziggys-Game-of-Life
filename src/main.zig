@@ -37,6 +37,9 @@ var back_buffer = [1]u1{0} ** (GRID_SIZE * GRID_SIZE);
 
 const window_width = 800;
 const window_height = window_width;
+const cell_width = window_width / GRID_SIZE;
+const cell_height = window_height / GRID_SIZE;
+const ticks_per_second = 10;
 
 pub fn main() !void {
     if (c.SDL_InitSubSystem(c.SDL_INIT_VIDEO) < 0) {
@@ -64,7 +67,6 @@ pub fn main() !void {
         while (c.SDL_PollEvent(&event) != 0) {
             switch (event.type) {
                 c.SDL_KEYDOWN => {
-                    print("{s}\n", .{c.SDL_GetKeyName(event.key.keysym.sym)});
                     switch (event.key.keysym.sym) {
                         c.SDLK_SPACE => paused = !paused,
                         else => {},
@@ -80,13 +82,8 @@ pub fn main() !void {
         }
 
         // printGrid(&grid);
-        _ = c.SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
-        _ = c.SDL_RenderClear(renderer);
 
         if (!paused) {
-            _ = c.SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255);
-            _ = c.SDL_RenderDrawRect(renderer, &[_]c.SDL_Rect{.{ .x = window_width / 2, .y = window_height / 2, .w = 10, .h = 10 }});
-
             var row: i8 = 0;
             while (row < GRID_SIZE) : (row += 1) {
                 var col: i8 = 0;
@@ -124,8 +121,29 @@ pub fn main() !void {
             grid = back_buffer;
         }
 
+        // Draw automata state
+        _ = c.SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+        _ = c.SDL_RenderClear(renderer);
+        _ = c.SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255);
+        var row: u32 = 0;
+        while (row < GRID_SIZE) : (row += 1) {
+            var col: u32 = 0;
+            while (col < GRID_SIZE) : (col += 1) {
+                const alive = grid[row * GRID_SIZE + col] == 1;
+                if (!alive) continue;
+                const x = @intCast(c_int, col * cell_width);
+                const y = @intCast(c_int, row * cell_height);
+                _ = c.SDL_RenderFillRect(renderer, &[_]c.SDL_Rect{.{
+                    .x = x,
+                    .y = y,
+                    .w = cell_width,
+                    .h = cell_height,
+                }});
+            }
+        }
+
         c.SDL_RenderPresent(renderer);
-        // c.SDL_Delay(1);
+        c.SDL_Delay(1000.0 / ticks_per_second);
     }
 }
 

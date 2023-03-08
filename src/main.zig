@@ -6,6 +6,11 @@
 // possibly change window aspect ratio based on the grid aspect ratio..?
 
 const std = @import("std");
+const exit = std.os.exit;
+const mem = std.mem;
+const Allocator = mem.Allocator;
+const fs = std.fs;
+const math = std.math;
 const print = std.debug.print;
 
 const c = @cImport({
@@ -29,7 +34,7 @@ const Game = struct {
     cell_height: f32,
     updates_per_second: u16,
 
-    fn init(allocator: std.mem.Allocator, grid_size: u16) !Game {
+    fn init(allocator: Allocator, grid_size: u16) !Game {
         const grid = try allocator.alloc(u1, grid_size * grid_size);
         for (grid) |*cell| cell.* = 0;
         const back_buffer = try allocator.alloc(u1, grid_size * grid_size);
@@ -47,12 +52,29 @@ const Game = struct {
         };
     }
 
-    fn deinit(game: *Game, allocator: std.mem.Allocator) void {
+    fn init_from_file(allocator: Allocator, path: []const u8) !Game {
+        const stat = try fs.cwd().statFile(path);
+        const grid_size = math.sqrt(stat.size);
+        if (grid_size > math.maxInt(u16)) {
+            return error.FileTooBig;
+        }
+        var game = try Game.init(allocator, @intCast(u16, grid_size));
+        const f = try fs.cwd().openFile(path, .{});
+        defer f.close();
+        var br = std.io.bitReader(.Little, f.reader());
+        for (game.grid) |*cell| {
+            var out: usize = undefined;
+            cell.* = try br.readBits(u1, 1, &out);
+        }
+        return game;
+    }
+
+    fn deinit(game: *Game, allocator: Allocator) void {
         allocator.free(game.grid);
         allocator.free(game.back_buffer);
     }
 
-    fn updateGrid(game: *Game) void {
+    fn update_grid(game: *Game) void {
         var row: i17 = 0;
         while (row < game.grid_size) : (row += 1) {
             var col: i17 = 0;
@@ -107,28 +129,42 @@ pub fn main() !void {
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
 
-    var grid_size: u16 = 10;
+    var grid_size: ?u16 = null;
+    var load_filename: ?[]const u8 = null;
     if (args.len > 1) {
         for (args[1..]) |arg| {
-            if (std.mem.startsWith(u8, arg, "--grid-size=")) {
+            if (std.mem.startsWith(u8, arg, "--load=")) {
+                if (load_filename != null) {
+                    std.log.err("cannot specify filename multiple times", .{});
+                    exit(1);
+                }
+                load_filename = std.mem.trimLeft(u8, arg, "--load=");
+            } else if (std.mem.startsWith(u8, arg, "--grid-size=")) {
+                if (grid_size != null) {
+                    std.log.err("cannot specify grid size multiple times", .{});
+                    exit(1);
+                }
                 const val_str = std.mem.trimLeft(u8, arg, "--grid-size=");
                 const size = std.fmt.parseUnsigned(u16, val_str, 10) catch {
                     std.log.err("invalid grid size: {s}", .{val_str});
-                    std.os.exit(1);
+                    exit(1);
                 };
                 if (size < 1 or size >= 256) {
                     std.log.err("grid size must be between 1 and 255", .{});
-                    std.os.exit(1);
+                    exit(1);
                 }
                 grid_size = size;
             } else {
                 std.log.err("unrecognized option {s}", .{arg});
-                std.os.exit(1);
+                exit(1);
             }
         }
     }
 
-    var game = try Game.init(allocator, grid_size);
+    var game = if (load_filename) |path|
+        try Game.init_from_file(allocator, path)
+    else
+        try Game.init(allocator, grid_size orelse 10);
     defer game.deinit(allocator);
 
     const window = c.SDL_CreateWindow(
@@ -148,23 +184,31 @@ pub fn main() !void {
     var cell_tick_timer: u32 = 0;
     var previous_tick = c.SDL_GetTicks();
 
-    while (!quitting) {
-        var clicked = false;
+    var mouse_left_down = false;
+    var mouse_right_down = false;
 
+    while (!quitting) {
         while (c.SDL_PollEvent(&event) != 0) {
             switch (event.type) {
-                c.SDL_MOUSEBUTTONDOWN => {
-                    if (event.button.button == c.SDL_BUTTON_LEFT) clicked = true;
+                c.SDL_MOUSEBUTTONDOWN => switch (event.button.button) {
+                    c.SDL_BUTTON_LEFT => mouse_left_down = true,
+                    c.SDL_BUTTON_RIGHT => mouse_right_down = true,
+                    else => {},
+                },
+                c.SDL_MOUSEBUTTONUP => switch (event.button.button) {
+                    c.SDL_BUTTON_LEFT => mouse_left_down = false,
+                    c.SDL_BUTTON_RIGHT => mouse_right_down = false,
+                    else => {},
                 },
                 c.SDL_KEYDOWN => {
                     switch (event.key.keysym.sym) {
                         c.SDLK_SPACE => paused = !paused,
                         c.SDLK_EQUALS, c.SDLK_PLUS => {
-                            game.updates_per_second = std.math.clamp(game.updates_per_second + 1, 1, 144);
+                            game.updates_per_second = math.clamp(game.updates_per_second + 1, 1, 144);
                             std.log.info("game.updates_per_second = {}", .{game.updates_per_second});
                         },
                         c.SDLK_MINUS => {
-                            game.updates_per_second = std.math.clamp(game.updates_per_second - 1, 1, 144);
+                            game.updates_per_second = math.clamp(game.updates_per_second - 1, 1, 144);
                             std.log.info("game.updates_per_second = {}", .{game.updates_per_second});
                         },
                         else => {},
@@ -183,17 +227,10 @@ pub fn main() !void {
             cell_tick_timer += dt;
             if (cell_tick_timer >= 1000 / game.updates_per_second) {
                 cell_tick_timer = 0;
-                game.updateGrid();
+                game.update_grid();
             }
             previous_tick = now;
         } else {
-            // _ = c.SDL_SetRenderDrawColor(renderer, 255, 127, 0, 255);
-            // _ = c.SDL_RenderDrawRect(renderer, &[_]c.SDL_Rect{.{
-            //     .x = 0,
-            //     .y = 0,
-            //     .w = window_width,
-            //     .h = wind,
-            // }});
             bgnd_col = .{ .r = 63, .g = 31, .b = 0 };
         }
 
@@ -225,15 +262,19 @@ pub fn main() !void {
             var x: c_int = undefined;
             var y: c_int = undefined;
             _ = c.SDL_GetMouseState(&x, &y);
-            const norm_x = @intToFloat(f32, x) / game.window_width;
-            const norm_y = @intToFloat(f32, y) / game.window_height;
-            const col = @floor(norm_x * @intToFloat(f32, game.grid_size));
-            const row = @floor(norm_y * @intToFloat(f32, game.grid_size));
+            const norm_x = math.clamp(@intToFloat(f32, x) / game.window_width, 0, 1);
+            const norm_y = math.clamp(@intToFloat(f32, y) / game.window_height, 0, 1);
+            const grid_size_f = @intToFloat(f32, game.grid_size);
+            const col = @floor(norm_x * grid_size_f);
+            const row = @floor(norm_y * grid_size_f);
+            const icol = math.clamp(@floatToInt(u16, col), 0, game.grid_size - 1);
+            const irow = math.clamp(@floatToInt(u16, row), 0, game.grid_size - 1);
 
-            if (clicked) {
-                const icol = @floatToInt(u16, col);
-                const irow = @floatToInt(u16, row);
-                game.grid[irow * game.grid_size + icol] = ~game.grid[irow * game.grid_size + icol];
+            if (mouse_left_down) {
+                game.grid[irow * game.grid_size + icol] = 1;
+            }
+            if (mouse_right_down) {
+                game.grid[irow * game.grid_size + icol] = 0;
             }
 
             _ = c.SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255);

@@ -1,12 +1,9 @@
 // TODO:
-// Specify starting states
-// Variable grid size
-// Zooming!
-
 // Saving grid to disk: just dump the bytes!
 // interpret first two u16/u32's as width/height, raw grid data from there
 
-// possibly change window aspect ratio based on the grid aspect ratio
+// Camera zooming! (maybe...)
+// possibly change window aspect ratio based on the grid aspect ratio..?
 
 const std = @import("std");
 const print = std.debug.print;
@@ -119,8 +116,8 @@ pub fn main() !void {
                     std.log.err("invalid grid size: {s}", .{val_str});
                     std.os.exit(1);
                 };
-                if (size < 1 or size > 100) {
-                    std.log.err("grid size must be between 1 and 100", .{});
+                if (size < 1 or size >= 256) {
+                    std.log.err("grid size must be between 1 and 255", .{});
                     std.os.exit(1);
                 }
                 grid_size = size;
@@ -162,6 +159,14 @@ pub fn main() !void {
                 c.SDL_KEYDOWN => {
                     switch (event.key.keysym.sym) {
                         c.SDLK_SPACE => paused = !paused,
+                        c.SDLK_EQUALS, c.SDLK_PLUS => {
+                            game.updates_per_second = std.math.clamp(game.updates_per_second + 1, 1, 144);
+                            std.log.info("game.updates_per_second = {}", .{game.updates_per_second});
+                        },
+                        c.SDLK_MINUS => {
+                            game.updates_per_second = std.math.clamp(game.updates_per_second - 1, 1, 144);
+                            std.log.info("game.updates_per_second = {}", .{game.updates_per_second});
+                        },
                         else => {},
                     }
                 },

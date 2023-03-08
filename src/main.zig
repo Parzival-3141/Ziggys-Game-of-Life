@@ -26,10 +26,10 @@ const Game = struct {
     grid_size: u16,
     grid: []u1,
     back_buffer: []u1,
-    window_width: u16,
-    window_height: u16,
-    cell_width: u16,
-    cell_height: u16,
+    window_width: f32,
+    window_height: f32,
+    cell_width: f32,
+    cell_height: f32,
     updates_per_second: u16,
 
     fn init(allocator: std.mem.Allocator, grid_size: u16) !Game {
@@ -44,8 +44,8 @@ const Game = struct {
             .back_buffer = back_buffer,
             .window_width = 700,
             .window_height = 700,
-            .cell_width = 700 / grid_size,
-            .cell_height = 700 / grid_size,
+            .cell_width = 700 / @intToFloat(f32, grid_size),
+            .cell_height = 700 / @intToFloat(f32, grid_size),
             .updates_per_second = 10,
         };
     }
@@ -138,8 +138,8 @@ pub fn main() !void {
         "ziggy's game of life",
         c.SDL_WINDOWPOS_CENTERED,
         c.SDL_WINDOWPOS_CENTERED,
-        game.window_width,
-        game.window_height,
+        @floatToInt(c_int, game.window_width),
+        @floatToInt(c_int, game.window_height),
         0,
     );
 
@@ -204,11 +204,10 @@ pub fn main() !void {
                 while (col < game.grid_size) : (col += 1) {
                     const alive = game.grid[row * game.grid_size + col] == 1;
                     if (!alive) continue;
-                    const x = @intCast(c_int, col * game.cell_width);
-                    const y = @intCast(c_int, row * game.cell_height);
-                    _ = c.SDL_RenderFillRect(renderer, &[_]c.SDL_Rect{.{
-                        .x = x,
-                        .y = y,
+
+                    _ = c.SDL_RenderFillRectF(renderer, &[_]c.SDL_FRect{.{
+                        .x = @intToFloat(f32, col) * game.cell_width,
+                        .y = @intToFloat(f32, row) * game.cell_height,
                         .w = game.cell_width,
                         .h = game.cell_height,
                     }});
@@ -221,21 +220,23 @@ pub fn main() !void {
             var x: c_int = undefined;
             var y: c_int = undefined;
             _ = c.SDL_GetMouseState(&x, &y);
-            const norm_x = @intToFloat(f32, x) / @intToFloat(f32, game.window_width);
-            const norm_y = @intToFloat(f32, y) / @intToFloat(f32, game.window_height);
-            const col = @floatToInt(u32, @floor(norm_x * @intToFloat(f32, game.grid_size)));
-            const row = @floatToInt(u32, @floor(norm_y * @intToFloat(f32, game.grid_size)));
+            const norm_x = @intToFloat(f32, x) / game.window_width;
+            const norm_y = @intToFloat(f32, y) / game.window_height;
+            const col = @floor(norm_x * @intToFloat(f32, game.grid_size));
+            const row = @floor(norm_y * @intToFloat(f32, game.grid_size));
 
             if (clicked) {
-                game.grid[row * game.grid_size + col] = ~game.grid[row * game.grid_size + col];
+                const icol = @floatToInt(u16, col);
+                const irow = @floatToInt(u16, row);
+                game.grid[irow * game.grid_size + icol] = ~game.grid[irow * game.grid_size + icol];
             }
 
             _ = c.SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255);
-            _ = c.SDL_RenderDrawRect(renderer, &[_]c.SDL_Rect{.{
-                .x = @intCast(c_int, col * game.cell_width),
-                .y = @intCast(c_int, row * game.cell_height),
-                .w = @intCast(c_int, game.cell_width),
-                .h = @intCast(c_int, game.cell_height),
+            _ = c.SDL_RenderDrawRectF(renderer, &[_]c.SDL_FRect{.{
+                .x = col * game.cell_width,
+                .y = row * game.cell_height,
+                .w = game.cell_width,
+                .h = game.cell_height,
             }});
         }
 

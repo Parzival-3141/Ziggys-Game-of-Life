@@ -22,28 +22,79 @@ const Color = struct {
     a: u8 = 255,
 };
 
-const GRID_SIZE = 10;
+const Game = struct {
+    grid_size: u16,
+    grid: []u1,
+    back_buffer: []u1,
+    window_width: u16,
+    window_height: u16,
+    cell_width: u16,
+    cell_height: u16,
+    updates_per_second: u16,
 
-var grid = [GRID_SIZE * GRID_SIZE]u1{
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 1, 1, 0, 0, 0, 0, 0, 0,
-    0, 0, 1, 0, 1, 0, 0, 0, 0, 0,
-    0, 0, 1, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    fn init(allocator: std.mem.Allocator, grid_size: u16) !Game {
+        const grid = try allocator.alloc(u1, grid_size * grid_size);
+        for (grid) |*cell| cell.* = 0;
+        const back_buffer = try allocator.alloc(u1, grid_size * grid_size);
+        for (back_buffer) |*cell| cell.* = 0;
+
+        return Game{
+            .grid_size = grid_size,
+            .grid = grid,
+            .back_buffer = back_buffer,
+            .window_width = 700,
+            .window_height = 700,
+            .cell_width = 700 / grid_size,
+            .cell_height = 700 / grid_size,
+            .updates_per_second = 10,
+        };
+    }
+
+    fn deinit(game: *Game, allocator: std.mem.Allocator) void {
+        allocator.free(game.grid);
+        allocator.free(game.back_buffer);
+    }
+
+    fn updateGrid(game: *Game) void {
+        var row: i17 = 0;
+        while (row < game.grid_size) : (row += 1) {
+            var col: i17 = 0;
+            while (col < game.grid_size) : (col += 1) {
+                var alive_count: u8 = 0;
+
+                inline for (.{
+                    .{ -1, -1 },
+                    .{ -1, 0 },
+                    .{ -1, 1 },
+                    .{ 0, -1 },
+                    .{ 0, 1 },
+                    .{ 1, -1 },
+                    .{ 1, 0 },
+                    .{ 1, 1 },
+                }) |offset| {
+                    const check_col = @intCast(u16, @mod(col + offset[0], @as(i17, game.grid_size)));
+                    const check_row = @intCast(u16, @mod(row + offset[1], @as(i17, game.grid_size)));
+                    const index = check_row * game.grid_size + check_col;
+                    alive_count += game.grid[index];
+                }
+
+                const index = @intCast(u16, row) * game.grid_size + @intCast(u16, col);
+                const is_alive = game.grid[index] == 1;
+
+                if (is_alive) {
+                    game.back_buffer[index] = if (alive_count < 2 or alive_count > 3) 0 else 1;
+                } else if (alive_count == 3) {
+                    game.back_buffer[index] = 1;
+                } else {
+                    game.back_buffer[index] = 0;
+                }
+            }
+        }
+        var old_grid = game.grid;
+        game.grid = game.back_buffer;
+        game.back_buffer = old_grid;
+    }
 };
-
-var back_buffer = [1]u1{0} ** (GRID_SIZE * GRID_SIZE);
-
-const window_width = 700;
-const window_height = window_width;
-const cell_width = window_width / GRID_SIZE;
-const cell_height = window_height / GRID_SIZE;
-const updates_per_second = 10;
 
 pub fn main() !void {
     if (c.SDL_InitSubSystem(c.SDL_INIT_VIDEO) < 0) {
@@ -52,12 +103,43 @@ pub fn main() !void {
     }
     defer c.SDL_Quit();
 
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+
+    const allocator = gpa.allocator();
+    const args = try std.process.argsAlloc(allocator);
+    defer std.process.argsFree(allocator, args);
+
+    var grid_size: u16 = 10;
+    if (args.len > 1) {
+        for (args[1..]) |arg| {
+            if (std.mem.startsWith(u8, arg, "--grid-size=")) {
+                const val_str = std.mem.trimLeft(u8, arg, "--grid-size=");
+                const size = std.fmt.parseUnsigned(u16, val_str, 10) catch {
+                    std.log.err("invalid grid size: {s}", .{val_str});
+                    std.os.exit(1);
+                };
+                if (size < 1 or size > 100) {
+                    std.log.err("grid size must be between 1 and 100", .{});
+                    std.os.exit(1);
+                }
+                grid_size = size;
+            } else {
+                std.log.err("unrecognized option {s}", .{arg});
+                std.os.exit(1);
+            }
+        }
+    }
+
+    var game = try Game.init(allocator, grid_size);
+    defer game.deinit(allocator);
+
     const window = c.SDL_CreateWindow(
         "ziggy's game of life",
         c.SDL_WINDOWPOS_CENTERED,
         c.SDL_WINDOWPOS_CENTERED,
-        window_width,
-        window_height,
+        game.window_width,
+        game.window_height,
         0,
     );
 
@@ -94,9 +176,9 @@ pub fn main() !void {
             const now = c.SDL_GetTicks();
             const dt = now - previous_tick;
             cell_tick_timer += dt;
-            if (cell_tick_timer >= 1000 / updates_per_second) {
+            if (cell_tick_timer >= 1000 / game.updates_per_second) {
                 cell_tick_timer = 0;
-                updateGrid();
+                game.updateGrid();
             }
             previous_tick = now;
         } else {
@@ -117,18 +199,18 @@ pub fn main() !void {
         {
             _ = c.SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255);
             var row: u32 = 0;
-            while (row < GRID_SIZE) : (row += 1) {
+            while (row < game.grid_size) : (row += 1) {
                 var col: u32 = 0;
-                while (col < GRID_SIZE) : (col += 1) {
-                    const alive = grid[row * GRID_SIZE + col] == 1;
+                while (col < game.grid_size) : (col += 1) {
+                    const alive = game.grid[row * game.grid_size + col] == 1;
                     if (!alive) continue;
-                    const x = @intCast(c_int, col * cell_width);
-                    const y = @intCast(c_int, row * cell_height);
+                    const x = @intCast(c_int, col * game.cell_width);
+                    const y = @intCast(c_int, row * game.cell_height);
                     _ = c.SDL_RenderFillRect(renderer, &[_]c.SDL_Rect{.{
                         .x = x,
                         .y = y,
-                        .w = cell_width,
-                        .h = cell_height,
+                        .w = game.cell_width,
+                        .h = game.cell_height,
                     }});
                 }
             }
@@ -139,62 +221,24 @@ pub fn main() !void {
             var x: c_int = undefined;
             var y: c_int = undefined;
             _ = c.SDL_GetMouseState(&x, &y);
-            const norm_x = @intToFloat(f32, x) / @intToFloat(f32, window_width);
-            const norm_y = @intToFloat(f32, y) / @intToFloat(f32, window_height);
-            const col = @floatToInt(u32, @floor(norm_x * GRID_SIZE));
-            const row = @floatToInt(u32, @floor(norm_y * GRID_SIZE));
+            const norm_x = @intToFloat(f32, x) / @intToFloat(f32, game.window_width);
+            const norm_y = @intToFloat(f32, y) / @intToFloat(f32, game.window_height);
+            const col = @floatToInt(u32, @floor(norm_x * @intToFloat(f32, game.grid_size)));
+            const row = @floatToInt(u32, @floor(norm_y * @intToFloat(f32, game.grid_size)));
 
             if (clicked) {
-                grid[row * GRID_SIZE + col] = ~grid[row * GRID_SIZE + col];
+                game.grid[row * game.grid_size + col] = ~game.grid[row * game.grid_size + col];
             }
 
             _ = c.SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255);
             _ = c.SDL_RenderDrawRect(renderer, &[_]c.SDL_Rect{.{
-                .x = @intCast(c_int, col * cell_width),
-                .y = @intCast(c_int, row * cell_height),
-                .w = @intCast(c_int, cell_width),
-                .h = @intCast(c_int, cell_height),
+                .x = @intCast(c_int, col * game.cell_width),
+                .y = @intCast(c_int, row * game.cell_height),
+                .w = @intCast(c_int, game.cell_width),
+                .h = @intCast(c_int, game.cell_height),
             }});
         }
 
         c.SDL_RenderPresent(renderer);
     }
-}
-
-fn updateGrid() void {
-    var row: i8 = 0;
-    while (row < GRID_SIZE) : (row += 1) {
-        var col: i8 = 0;
-        while (col < GRID_SIZE) : (col += 1) {
-            var alive_count: u8 = 0;
-
-            inline for (.{
-                .{ -1, -1 },
-                .{ -1, 0 },
-                .{ -1, 1 },
-                .{ 0, -1 },
-                .{ 0, 1 },
-                .{ 1, -1 },
-                .{ 1, 0 },
-                .{ 1, 1 },
-            }) |offset| {
-                const check_col = @mod(col + offset[0], GRID_SIZE);
-                const check_row = @mod(row + offset[1], GRID_SIZE);
-                const index = @intCast(u8, check_row * GRID_SIZE + check_col);
-                alive_count += grid[index];
-            }
-
-            const index = @intCast(u8, row * GRID_SIZE + col);
-            const is_alive = grid[index] == 1;
-
-            if (is_alive) {
-                back_buffer[index] = if (alive_count < 2 or alive_count > 3) 0 else 1;
-            } else if (alive_count == 3) {
-                back_buffer[index] = 1;
-            } else {
-                back_buffer[index] = 0;
-            }
-        }
-    }
-    grid = back_buffer;
 }

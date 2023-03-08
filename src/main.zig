@@ -131,20 +131,32 @@ pub fn main() !void {
 
     var grid_size: ?u16 = null;
     var load_filename: ?[]const u8 = null;
+    var updates_per_second: ?u16 = null;
     if (args.len > 1) {
         for (args[1..]) |arg| {
-            if (std.mem.startsWith(u8, arg, "--load=")) {
+            if (mem.startsWith(u8, arg, "--load=")) {
                 if (load_filename != null) {
                     std.log.err("cannot specify filename multiple times", .{});
                     exit(1);
                 }
-                load_filename = std.mem.trimLeft(u8, arg, "--load=");
-            } else if (std.mem.startsWith(u8, arg, "--grid-size=")) {
+                load_filename = mem.trimLeft(u8, arg, "--load=");
+            } else if (mem.startsWith(u8, arg, "--updates-per-second=")) {
+                const val_str = mem.trimLeft(u8, arg, "--updates-per-second=");
+                const ups = std.fmt.parseUnsigned(u16, val_str, 10) catch {
+                    std.log.err("invalid updates per second: {s}", .{val_str});
+                    exit(1);
+                };
+                if (ups < 1 or ups > 144) {
+                    std.log.err("updates per second must be between 1 and 144", .{});
+                    exit(1);
+                }
+                updates_per_second = ups;
+            } else if (mem.startsWith(u8, arg, "--grid-size=")) {
                 if (grid_size != null) {
                     std.log.err("cannot specify grid size multiple times", .{});
                     exit(1);
                 }
-                const val_str = std.mem.trimLeft(u8, arg, "--grid-size=");
+                const val_str = mem.trimLeft(u8, arg, "--grid-size=");
                 const size = std.fmt.parseUnsigned(u16, val_str, 10) catch {
                     std.log.err("invalid grid size: {s}", .{val_str});
                     exit(1);
@@ -166,6 +178,9 @@ pub fn main() !void {
     else
         try Game.init(allocator, grid_size orelse 10);
     defer game.deinit(allocator);
+    if (updates_per_second) |ups| {
+        game.updates_per_second = ups;
+    }
 
     const window = c.SDL_CreateWindow(
         "ziggy's game of life",

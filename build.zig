@@ -7,7 +7,7 @@ pub fn build(b: *std.Build) void {
     b.prominent_compile_errors = true;
 
     const exe = b.addExecutable(.{
-        .name = "game_of_life",
+        .name = "zigpaint",
         .root_source_file = .{ .path = "src/main.zig" },
         .target = target,
         .optimize = optimize,

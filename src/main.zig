@@ -81,16 +81,16 @@ const Game = struct {
         defer save_dir.close();
 
         var buffer: ["18446744073709551615.zgol".len]u8 = undefined;
-        const filename = try std.fmt.bufPrint(&buffer, "{d}.zgol", .{std.time.timestamp()});
-        std.log.info("saving file {s}", .{filename});
+        const basename = try std.fmt.bufPrint(&buffer, "{d}.zgol", .{std.time.timestamp()});
 
-        var save_file = try save_dir.createFile(filename, .{});
-        defer {
-            save_file.close();
+        var save_file = try save_dir.createFile(basename, .{});
+        defer save_file.close();
 
-            if (current_filepath) |path| allocator.free(path);
-            current_filepath = save_dir.realpathAlloc(allocator, filename) catch unreachable;
-        }
+        const save_filename_absolute = try save_dir.realpathAlloc(allocator, basename);
+        std.log.info("saving file {s}", .{save_filename_absolute});
+
+        if (current_filepath) |path| allocator.free(path);
+        current_filepath = save_filename_absolute;
 
         var bw = std.io.bitWriter(.Little, save_file.writer());
         for (game.grid) |cell| {

@@ -52,14 +52,20 @@ const Game = struct {
         };
     }
 
-    fn init_from_file(allocator: Allocator, path: []const u8) !Game {
-        const file_size_bits = (try fs.cwd().statFile(path)).size * 8; // @Note: stat.size is in bytes!
-        if (file_size_bits > math.maxInt(u16)) {
-            return error.FileTooBig;
-        }
+    fn init_from_file(game: *Game, allocator: Allocator, path: []const u8) !void {
+        std.log.info("loading file {s}", .{path});
 
-        const grid_side_len = math.sqrt(file_size_bits);
-        var game = try Game.init(allocator, @intCast(u16, grid_side_len));
+        const file_size_bits = (try fs.cwd().statFile(path)).size * 8; // @Note: stat.size is in bytes!
+        const grid_side_len = if (file_size_bits > math.maxInt(u16))
+            math.maxInt(u8) // sqrt(math.maxInt(u16))
+        else
+            @intCast(u16, math.sqrt(file_size_bits));
+
+        game.deinit(allocator);
+        game.* = try Game.init(allocator, grid_side_len);
+
+        std.log.info("loading file {s}", .{path});
+        game.current_filepath = try fs.cwd().realpathAlloc(allocator, path);
 
         const f = try fs.cwd().openFile(path, .{});
         defer f.close();
@@ -69,13 +75,42 @@ const Game = struct {
             var out: usize = undefined;
             cell.* = try br.readBits(u1, 1, &out);
         }
+    }
 
-        return game;
+    fn save(game: *Game, allocator: Allocator) !void {
+        const exe_path = try fs.selfExeDirPathAlloc(allocator);
+        defer allocator.free(exe_path);
+
+        var exe_dir = try fs.cwd().openDir(exe_path, .{ .access_sub_paths = true });
+        defer exe_dir.close();
+
+        var save_dir = try exe_dir.makeOpenPath("saves", .{});
+        defer save_dir.close();
+
+        var buffer: ["18446744073709551615.zgol".len]u8 = undefined;
+        const filename = try std.fmt.bufPrint(&buffer, "{d}.zgol", .{std.time.timestamp()});
+        std.log.info("saving file {s}", .{filename});
+
+        var save_file = try save_dir.createFile(filename, .{});
+        defer {
+            save_file.close();
+
+            if (game.current_filepath) |path| allocator.free(path);
+            current_filepath = save_dir.realpathAlloc(allocator, filename) catch unreachable;
+        }
+
+        var bw = std.io.bitWriter(.Little, save_file.writer());
+        for (game.grid) |cell| {
+            try bw.writeBits(cell, 1);
+        }
+
+        try bw.flushBits();
     }
 
     fn deinit(game: *Game, allocator: Allocator) void {
         allocator.free(game.grid);
         allocator.free(game.back_buffer);
+        if (game.current_filepath) |path| allocator.free(path);
     }
 
     fn update_grid(game: *Game) void {
@@ -118,6 +153,8 @@ const Game = struct {
         game.back_buffer = old_grid;
     }
 };
+
+var current_filepath: ?[]const u8 = null;
 
 pub fn main() !void {
     if (c.SDL_InitSubSystem(c.SDL_INIT_VIDEO) < 0) {
@@ -177,11 +214,10 @@ pub fn main() !void {
         }
     }
 
-    var game = if (load_filename) |path|
-        try Game.init_from_file(allocator, path)
-    else
-        try Game.init(allocator, grid_side_len orelse 10);
+    var game = try Game.init(allocator, grid_side_len orelse 10);
+    if (load_filename) |path| try game.init_from_file(allocator, path);
     defer game.deinit(allocator);
+
     if (updates_per_second) |ups| {
         game.updates_per_second = ups;
     }
@@ -229,6 +265,14 @@ pub fn main() !void {
                         c.SDLK_MINUS => {
                             game.updates_per_second = math.clamp(game.updates_per_second - 1, 1, 144);
                             std.log.info("game.updates_per_second = {}", .{game.updates_per_second});
+                        },
+
+                        c.SDLK_s => try game.save(allocator),
+                        c.SDLK_r => {
+                            if (game.current_filepath) |fpath| {
+                                std.log.debug("loading file {s}", .{fpath});
+                                try game.init_from_file(allocator, fpath);
+                            } else std.log.warn("no file to reload, try loading or saving a file first.", .{});
                         },
                         else => {},
                     }

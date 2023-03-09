@@ -1,10 +1,3 @@
-// TODO:
-// Saving grid to disk: just dump the bytes!
-// interpret first two u16/u32's as width/height, raw grid data from there
-
-// Camera zooming! (maybe...)
-// possibly change window aspect ratio based on the grid aspect ratio..??
-
 const std = @import("std");
 const exit = std.os.exit;
 const mem = std.mem;
@@ -52,7 +45,12 @@ const Game = struct {
         };
     }
 
-    fn init_from_file(game: *Game, allocator: Allocator, path: []const u8) !void {
+    fn init_from_file(game: *Game, allocator: Allocator) !void {
+        const path = current_filepath orelse {
+            std.log.warn("no file to load", .{});
+            return;
+        };
+
         std.log.info("loading file {s}", .{path});
 
         const file_size_bits = (try fs.cwd().statFile(path)).size * 8; // @Note: stat.size is in bytes!
@@ -63,9 +61,6 @@ const Game = struct {
 
         game.deinit(allocator);
         game.* = try Game.init(allocator, grid_side_len);
-
-        std.log.info("loading file {s}", .{path});
-        game.current_filepath = try fs.cwd().realpathAlloc(allocator, path);
 
         const f = try fs.cwd().openFile(path, .{});
         defer f.close();
@@ -95,7 +90,7 @@ const Game = struct {
         defer {
             save_file.close();
 
-            if (game.current_filepath) |path| allocator.free(path);
+            if (current_filepath) |path| allocator.free(path);
             current_filepath = save_dir.realpathAlloc(allocator, filename) catch unreachable;
         }
 
@@ -110,7 +105,6 @@ const Game = struct {
     fn deinit(game: *Game, allocator: Allocator) void {
         allocator.free(game.grid);
         allocator.free(game.back_buffer);
-        if (game.current_filepath) |path| allocator.free(path);
     }
 
     fn update_grid(game: *Game) void {
@@ -154,6 +148,8 @@ const Game = struct {
     }
 };
 
+// The most recently loaded or saved file.
+// Pressing 'r' will reload the game state from its contents if set.
 var current_filepath: ?[]const u8 = null;
 
 pub fn main() !void {
@@ -169,6 +165,10 @@ pub fn main() !void {
     const allocator = gpa.allocator();
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
+
+    defer if (current_filepath) |path| {
+        allocator.free(path);
+    };
 
     var grid_side_len: ?u16 = null;
     var load_filename: ?[]const u8 = null;
@@ -215,7 +215,10 @@ pub fn main() !void {
     }
 
     var game = try Game.init(allocator, grid_side_len orelse 10);
-    if (load_filename) |path| try game.init_from_file(allocator, path);
+    if (load_filename) |path| {
+        current_filepath = try fs.cwd().realpathAlloc(allocator, path);
+        try game.init_from_file(allocator);
+    }
     defer game.deinit(allocator);
 
     if (updates_per_second) |ups| {
@@ -268,12 +271,7 @@ pub fn main() !void {
                         },
 
                         c.SDLK_s => try game.save(allocator),
-                        c.SDLK_r => {
-                            if (game.current_filepath) |fpath| {
-                                std.log.debug("loading file {s}", .{fpath});
-                                try game.init_from_file(allocator, fpath);
-                            } else std.log.warn("no file to reload, try loading or saving a file first.", .{});
-                        },
+                        c.SDLK_r => try game.init_from_file(allocator),
                         else => {},
                     }
                 },

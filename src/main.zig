@@ -25,7 +25,6 @@ const Game = struct {
     window_height: f32,
     cell_width: f32,
     cell_height: f32,
-    updates_per_second: u16,
 
     fn init(allocator: Allocator, grid_side_len: u16) !Game {
         const grid = try allocator.alloc(u1, grid_side_len * grid_side_len);
@@ -41,7 +40,6 @@ const Game = struct {
             .window_height = 700,
             .cell_width = 700 / @intToFloat(f32, grid_side_len),
             .cell_height = 700 / @intToFloat(f32, grid_side_len),
-            .updates_per_second = 10,
         };
     }
 
@@ -172,7 +170,7 @@ pub fn main() !void {
 
     var grid_side_len: ?u16 = null;
     var load_filename: ?[]const u8 = null;
-    var updates_per_second: ?u16 = null;
+    var updates_per_second: u16 = 10;
     if (args.len > 1) {
         for (args[1..]) |arg| {
             if (mem.startsWith(u8, arg, "--load=")) {
@@ -221,10 +219,6 @@ pub fn main() !void {
     }
     defer game.deinit(allocator);
 
-    if (updates_per_second) |ups| {
-        game.updates_per_second = ups;
-    }
-
     const window = c.SDL_CreateWindow(
         "ziggy's game of life",
         c.SDL_WINDOWPOS_CENTERED,
@@ -262,12 +256,12 @@ pub fn main() !void {
                     switch (event.key.keysym.sym) {
                         c.SDLK_SPACE => paused = !paused,
                         c.SDLK_EQUALS, c.SDLK_PLUS => {
-                            game.updates_per_second = math.clamp(game.updates_per_second + 1, 1, 144);
-                            std.log.info("game.updates_per_second = {}", .{game.updates_per_second});
+                            updates_per_second = math.clamp(updates_per_second + 1, 1, 144);
+                            std.log.info("updates per second = {}", .{updates_per_second});
                         },
                         c.SDLK_MINUS => {
-                            game.updates_per_second = math.clamp(game.updates_per_second - 1, 1, 144);
-                            std.log.info("game.updates_per_second = {}", .{game.updates_per_second});
+                            updates_per_second = math.clamp(updates_per_second - 1, 1, 144);
+                            std.log.info("updates per second = {}", .{updates_per_second});
                         },
 
                         c.SDLK_s => try game.save(allocator),
@@ -286,7 +280,7 @@ pub fn main() !void {
             const now = c.SDL_GetTicks();
             const dt = now - previous_tick;
             cell_tick_timer += dt;
-            if (cell_tick_timer >= 1000 / game.updates_per_second) {
+            if (cell_tick_timer >= 1000 / updates_per_second) {
                 cell_tick_timer = 0;
                 game.update_grid();
             }

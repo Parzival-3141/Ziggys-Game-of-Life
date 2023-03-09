@@ -3,7 +3,7 @@
 // interpret first two u16/u32's as width/height, raw grid data from there
 
 // Camera zooming! (maybe...)
-// possibly change window aspect ratio based on the grid aspect ratio..?
+// possibly change window aspect ratio based on the grid aspect ratio..??
 
 const std = @import("std");
 const exit = std.os.exit;
@@ -25,7 +25,7 @@ const Color = struct {
 };
 
 const Game = struct {
-    grid_size: u16,
+    grid_side_len: u16,
     grid: []u1,
     back_buffer: []u1,
     window_width: f32,
@@ -34,38 +34,42 @@ const Game = struct {
     cell_height: f32,
     updates_per_second: u16,
 
-    fn init(allocator: Allocator, grid_size: u16) !Game {
-        const grid = try allocator.alloc(u1, grid_size * grid_size);
+    fn init(allocator: Allocator, grid_side_len: u16) !Game {
+        const grid = try allocator.alloc(u1, grid_side_len * grid_side_len);
         for (grid) |*cell| cell.* = 0;
-        const back_buffer = try allocator.alloc(u1, grid_size * grid_size);
+        const back_buffer = try allocator.alloc(u1, grid_side_len * grid_side_len);
         for (back_buffer) |*cell| cell.* = 0;
 
         return Game{
-            .grid_size = grid_size,
+            .grid_side_len = grid_side_len,
             .grid = grid,
             .back_buffer = back_buffer,
             .window_width = 700,
             .window_height = 700,
-            .cell_width = 700 / @intToFloat(f32, grid_size),
-            .cell_height = 700 / @intToFloat(f32, grid_size),
+            .cell_width = 700 / @intToFloat(f32, grid_side_len),
+            .cell_height = 700 / @intToFloat(f32, grid_side_len),
             .updates_per_second = 10,
         };
     }
 
     fn init_from_file(allocator: Allocator, path: []const u8) !Game {
-        const stat = try fs.cwd().statFile(path);
-        const grid_size = math.sqrt(stat.size);
-        if (grid_size > math.maxInt(u16)) {
+        const file_size_bits = (try fs.cwd().statFile(path)).size * 8; // @Note: stat.size is in bytes!
+        if (file_size_bits > math.maxInt(u16)) {
             return error.FileTooBig;
         }
-        var game = try Game.init(allocator, @intCast(u16, grid_size));
+
+        const grid_side_len = math.sqrt(file_size_bits);
+        var game = try Game.init(allocator, @intCast(u16, grid_side_len));
+
         const f = try fs.cwd().openFile(path, .{});
         defer f.close();
+
         var br = std.io.bitReader(.Little, f.reader());
         for (game.grid) |*cell| {
             var out: usize = undefined;
             cell.* = try br.readBits(u1, 1, &out);
         }
+
         return game;
     }
 
@@ -76,9 +80,9 @@ const Game = struct {
 
     fn update_grid(game: *Game) void {
         var row: i17 = 0;
-        while (row < game.grid_size) : (row += 1) {
+        while (row < game.grid_side_len) : (row += 1) {
             var col: i17 = 0;
-            while (col < game.grid_size) : (col += 1) {
+            while (col < game.grid_side_len) : (col += 1) {
                 var alive_count: u8 = 0;
 
                 inline for (.{
@@ -91,13 +95,13 @@ const Game = struct {
                     .{ 1, 0 },
                     .{ 1, 1 },
                 }) |offset| {
-                    const check_col = @intCast(u16, @mod(col + offset[0], @as(i17, game.grid_size)));
-                    const check_row = @intCast(u16, @mod(row + offset[1], @as(i17, game.grid_size)));
-                    const index = check_row * game.grid_size + check_col;
+                    const check_col = @intCast(u16, @mod(col + offset[0], @as(i17, game.grid_side_len)));
+                    const check_row = @intCast(u16, @mod(row + offset[1], @as(i17, game.grid_side_len)));
+                    const index = check_row * game.grid_side_len + check_col;
                     alive_count += game.grid[index];
                 }
 
-                const index = @intCast(u16, row) * game.grid_size + @intCast(u16, col);
+                const index = @intCast(u16, row) * game.grid_side_len + @intCast(u16, col);
                 const is_alive = game.grid[index] == 1;
 
                 if (is_alive) {
@@ -129,7 +133,7 @@ pub fn main() !void {
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
 
-    var grid_size: ?u16 = null;
+    var grid_side_len: ?u16 = null;
     var load_filename: ?[]const u8 = null;
     var updates_per_second: ?u16 = null;
     if (args.len > 1) {
@@ -151,21 +155,21 @@ pub fn main() !void {
                     exit(1);
                 }
                 updates_per_second = ups;
-            } else if (mem.startsWith(u8, arg, "--grid-size=")) {
-                if (grid_size != null) {
-                    std.log.err("cannot specify grid size multiple times", .{});
+            } else if (mem.startsWith(u8, arg, "--grid-side-len=")) {
+                if (grid_side_len != null) {
+                    std.log.err("cannot specify grid side length multiple times", .{});
                     exit(1);
                 }
-                const val_str = mem.trimLeft(u8, arg, "--grid-size=");
-                const size = std.fmt.parseUnsigned(u16, val_str, 10) catch {
-                    std.log.err("invalid grid size: {s}", .{val_str});
+                const val_str = mem.trimLeft(u8, arg, "--grid-side-len=");
+                const side_len = std.fmt.parseUnsigned(u16, val_str, 10) catch {
+                    std.log.err("invalid grid side length: {s}", .{val_str});
                     exit(1);
                 };
-                if (size < 1 or size >= 256) {
-                    std.log.err("grid size must be between 1 and 255", .{});
+                if (side_len < 1 or side_len >= 256) {
+                    std.log.err("grid side length must be between 1 and 255", .{});
                     exit(1);
                 }
-                grid_size = size;
+                grid_side_len = side_len;
             } else {
                 std.log.err("unrecognized option {s}", .{arg});
                 exit(1);
@@ -176,7 +180,7 @@ pub fn main() !void {
     var game = if (load_filename) |path|
         try Game.init_from_file(allocator, path)
     else
-        try Game.init(allocator, grid_size orelse 10);
+        try Game.init(allocator, grid_side_len orelse 10);
     defer game.deinit(allocator);
     if (updates_per_second) |ups| {
         game.updates_per_second = ups;
@@ -256,10 +260,10 @@ pub fn main() !void {
         {
             _ = c.SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255);
             var row: u32 = 0;
-            while (row < game.grid_size) : (row += 1) {
+            while (row < game.grid_side_len) : (row += 1) {
                 var col: u32 = 0;
-                while (col < game.grid_size) : (col += 1) {
-                    const alive = game.grid[row * game.grid_size + col] == 1;
+                while (col < game.grid_side_len) : (col += 1) {
+                    const alive = game.grid[row * game.grid_side_len + col] == 1;
                     if (!alive) continue;
 
                     _ = c.SDL_RenderFillRectF(renderer, &[_]c.SDL_FRect{.{
@@ -279,17 +283,17 @@ pub fn main() !void {
             _ = c.SDL_GetMouseState(&x, &y);
             const norm_x = math.clamp(@intToFloat(f32, x) / game.window_width, 0, 1);
             const norm_y = math.clamp(@intToFloat(f32, y) / game.window_height, 0, 1);
-            const grid_size_f = @intToFloat(f32, game.grid_size);
-            const col = @floor(norm_x * grid_size_f);
-            const row = @floor(norm_y * grid_size_f);
-            const icol = math.clamp(@floatToInt(u16, col), 0, game.grid_size - 1);
-            const irow = math.clamp(@floatToInt(u16, row), 0, game.grid_size - 1);
+            const grid_side_len_f = @intToFloat(f32, game.grid_side_len);
+            const col = @floor(norm_x * grid_side_len_f);
+            const row = @floor(norm_y * grid_side_len_f);
+            const icol = math.clamp(@floatToInt(u16, col), 0, game.grid_side_len - 1);
+            const irow = math.clamp(@floatToInt(u16, row), 0, game.grid_side_len - 1);
 
             if (mouse_left_down) {
-                game.grid[irow * game.grid_size + icol] = 1;
+                game.grid[irow * game.grid_side_len + icol] = 1;
             }
             if (mouse_right_down) {
-                game.grid[irow * game.grid_size + icol] = 0;
+                game.grid[irow * game.grid_side_len + icol] = 0;
             }
 
             _ = c.SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255);

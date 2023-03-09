@@ -84,13 +84,6 @@ const Game = struct {
         const basename = try std.fmt.bufPrint(&buffer, "{d}.zgol", .{std.time.timestamp()});
 
         var save_file = try save_dir.createFile(basename, .{});
-        defer save_file.close();
-
-        const save_filename_absolute = try save_dir.realpathAlloc(allocator, basename);
-        std.log.info("saving file {s}", .{save_filename_absolute});
-
-        if (current_filepath) |path| allocator.free(path);
-        current_filepath = save_filename_absolute;
 
         var bw = std.io.bitWriter(.Little, save_file.writer());
         for (game.grid) |cell| {
@@ -98,6 +91,14 @@ const Game = struct {
         }
 
         try bw.flushBits();
+        save_file.close();
+
+        // Have to close the file before getting its absolute path, for some windows reason
+        const save_filename_absolute = try save_dir.realpathAlloc(allocator, basename);
+        std.log.info("saving file {s}", .{save_filename_absolute});
+
+        if (current_filepath) |path| allocator.free(path);
+        current_filepath = save_filename_absolute;
     }
 
     fn deinit(game: *Game, allocator: Allocator) void {

@@ -151,6 +151,59 @@ const Game = struct {
 // Pressing 'r' will reload the game state from its contents if set.
 var current_filepath: ?[]const u8 = null;
 
+const Options = struct {
+    grid_side_len: ?u16 = null,
+    load_filename: ?[]const u8 = null,
+    updates_per_second: u16 = 10,
+
+    pub fn from_arguments(args: [][]const u8) Options {
+        var result = Options{};
+
+        if (args.len > 1) {
+            for (args[1..]) |arg| {
+                if (mem.startsWith(u8, arg, "-load=")) {
+                    if (result.load_filename != null) {
+                        std.log.err("cannot specify filename multiple times", .{});
+                        exit(1);
+                    }
+                    result.load_filename = mem.trimLeft(u8, arg, "-load=");
+                } else if (mem.startsWith(u8, arg, "-updates-per-second=")) {
+                    const val_str = mem.trimLeft(u8, arg, "-updates-per-second=");
+                    const ups = std.fmt.parseUnsigned(u16, val_str, 10) catch {
+                        std.log.err("invalid updates per second: {s}", .{val_str});
+                        exit(1);
+                    };
+                    if (ups < 1 or ups > 144) {
+                        std.log.err("updates per second must be between 1 and 144", .{});
+                        exit(1);
+                    }
+                    result.updates_per_second = ups;
+                } else if (mem.startsWith(u8, arg, "-grid-side-len=")) {
+                    if (result.grid_side_len != null) {
+                        std.log.err("cannot specify grid side length multiple times", .{});
+                        exit(1);
+                    }
+                    const val_str = mem.trimLeft(u8, arg, "-grid-side-len=");
+                    const side_len = std.fmt.parseUnsigned(u16, val_str, 10) catch {
+                        std.log.err("invalid grid side length: {s}", .{val_str});
+                        exit(1);
+                    };
+                    if (side_len < 1 or side_len >= 256) {
+                        std.log.err("grid side length must be between 1 and 255", .{});
+                        exit(1);
+                    }
+                    result.grid_side_len = side_len;
+                } else {
+                    std.log.err("unrecognized option {s}", .{arg});
+                    exit(1);
+                }
+            }
+        }
+
+        return result;
+    }
+};
+
 pub fn main() !void {
     if (c.SDL_InitSubSystem(c.SDL_INIT_VIDEO) < 0) {
         print("SDL failed to init!\n", .{});
@@ -169,52 +222,10 @@ pub fn main() !void {
         allocator.free(path);
     };
 
-    var grid_side_len: ?u16 = null;
-    var load_filename: ?[]const u8 = null;
-    var updates_per_second: u16 = 10;
-    if (args.len > 1) {
-        for (args[1..]) |arg| {
-            if (mem.startsWith(u8, arg, "--load=")) {
-                if (load_filename != null) {
-                    std.log.err("cannot specify filename multiple times", .{});
-                    exit(1);
-                }
-                load_filename = mem.trimLeft(u8, arg, "--load=");
-            } else if (mem.startsWith(u8, arg, "--updates-per-second=")) {
-                const val_str = mem.trimLeft(u8, arg, "--updates-per-second=");
-                const ups = std.fmt.parseUnsigned(u16, val_str, 10) catch {
-                    std.log.err("invalid updates per second: {s}", .{val_str});
-                    exit(1);
-                };
-                if (ups < 1 or ups > 144) {
-                    std.log.err("updates per second must be between 1 and 144", .{});
-                    exit(1);
-                }
-                updates_per_second = ups;
-            } else if (mem.startsWith(u8, arg, "--grid-side-len=")) {
-                if (grid_side_len != null) {
-                    std.log.err("cannot specify grid side length multiple times", .{});
-                    exit(1);
-                }
-                const val_str = mem.trimLeft(u8, arg, "--grid-side-len=");
-                const side_len = std.fmt.parseUnsigned(u16, val_str, 10) catch {
-                    std.log.err("invalid grid side length: {s}", .{val_str});
-                    exit(1);
-                };
-                if (side_len < 1 or side_len >= 256) {
-                    std.log.err("grid side length must be between 1 and 255", .{});
-                    exit(1);
-                }
-                grid_side_len = side_len;
-            } else {
-                std.log.err("unrecognized option {s}", .{arg});
-                exit(1);
-            }
-        }
-    }
+    var options = Options.from_arguments(args);
 
-    var game = try Game.init(allocator, grid_side_len orelse 10);
-    if (load_filename) |path| {
+    var game = try Game.init(allocator, options.grid_side_len orelse 10);
+    if (options.load_filename) |path| {
         current_filepath = try fs.cwd().realpathAlloc(allocator, path);
         try game.init_from_file(allocator);
     }
@@ -257,12 +268,12 @@ pub fn main() !void {
                     switch (event.key.keysym.sym) {
                         c.SDLK_SPACE => paused = !paused,
                         c.SDLK_EQUALS, c.SDLK_PLUS => {
-                            updates_per_second = math.clamp(updates_per_second + 1, 1, 144);
-                            std.log.info("updates per second = {}", .{updates_per_second});
+                            options.updates_per_second = math.clamp(options.updates_per_second + 1, 1, 144);
+                            std.log.info("updates per second = {}", .{options.updates_per_second});
                         },
                         c.SDLK_MINUS => {
-                            updates_per_second = math.clamp(updates_per_second - 1, 1, 144);
-                            std.log.info("updates per second = {}", .{updates_per_second});
+                            options.updates_per_second = math.clamp(options.updates_per_second - 1, 1, 144);
+                            std.log.info("updates per second = {}", .{options.updates_per_second});
                         },
 
                         c.SDLK_s => try game.save(allocator),
@@ -281,7 +292,7 @@ pub fn main() !void {
             const now = c.SDL_GetTicks();
             const dt = now - previous_tick;
             cell_tick_timer += dt;
-            if (cell_tick_timer >= 1000 / updates_per_second) {
+            if (cell_tick_timer >= 1000 / options.updates_per_second) {
                 cell_tick_timer = 0;
                 game.update_grid();
             }

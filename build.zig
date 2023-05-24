@@ -4,7 +4,6 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
 
     const optimize = b.standardOptimizeOption(.{});
-    b.prominent_compile_errors = true;
 
     const exe = b.addExecutable(.{
         .name = "zigpaint",
@@ -31,10 +30,9 @@ pub fn build(b: *std.Build) void {
     }
 
     exe.linkLibC();
-    exe.install();
+    b.installArtifact(exe);
 
-    const run_cmd = exe.run();
-    run_cmd.condition = .always;
+    const run_cmd = b.addRunArtifact(exe);
 
     run_cmd.step.dependOn(b.getInstallStep());
 

@@ -1,6 +1,8 @@
 # Ziggy's Game of Life
 [Conway's Game of Life](https://en.wikipedia.org/wiki/Conway%27s_Game_of_Life) in Zig.
 
+[game-of-life-demo.webm](https://github.com/Parzival-3141/Ziggys-Game-of-Life/assets/29632054/e058a682-b2c5-4b92-9e9e-5c33b34839ce)
+
 Made in a couple pairing sessions at [Recurse Center](https://www.recurse.com/).
 
 ## Building

@@ -151,6 +151,18 @@ const Game = struct {
 // Pressing 'r' will reload the game state from its contents if set.
 var current_filepath: ?[]const u8 = null;
 
+const help =
+    \\
+    \\Usage: zgol [Options]
+    \\Options:
+    \\  -load=<filepath>            Loads the file at <filepath> (overrides -grid-side-len)
+    \\  -updates-per-second=<num>   Sets the sim update rate [1 to 144]
+    \\  -grid-side-len=<num>        Specifies how long each side of the grid should be
+    \\                              (grid area == side-len^2) [1 to 255]
+    \\  -help                       Show this help info
+    \\
+;
+
 const Options = struct {
     grid_side_len: ?u16 = null,
     load_filename: ?[]const u8 = null,
@@ -193,8 +205,12 @@ const Options = struct {
                         exit(1);
                     }
                     result.grid_side_len = side_len;
+                } else if (mem.startsWith(u8, arg, "-help")) {
+                    std.log.info(help, .{});
+                    exit(0);
                 } else {
                     std.log.err("unrecognized option {s}", .{arg});
+                    std.log.info(help, .{});
                     exit(1);
                 }
             }
